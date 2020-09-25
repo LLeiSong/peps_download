@@ -13,6 +13,8 @@ sentinel:
   point:
   # [latmin, latmax, lonmin, lonmax]
   bbox:
+  # Sentinel-2 tile number
+  tile:
   # the date interval for downloading, fmt('2017-10-01')
   date_start: '2017-10-01'
   date_end: '2018-10-01'
@@ -23,6 +25,13 @@ sentinel:
   # EW, IW , SM, WV (for S1) | INS-NOBS, INS-RAW (for S2)
   sensoroperationalmode: IW
   orbit:
+  # S1A,S1B,S2A,S2B,S3A,S3B
+  satellite:
+  # Maximum cloud coverage for sentinel-2
+  cloud:
   download: True
   download_path: data/sentinel1_raw
   catalog_json:
+  # Extract zipfile or not
+  extract: False
+  windows: False

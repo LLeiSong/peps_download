@@ -8,6 +8,7 @@ import optparse
 import sys
 import yaml
 import geojson
+import zipfile
 from datetime import date
 
 
@@ -27,11 +28,11 @@ class GeoJSON:
     def __init__(self, geojson):
         if geojson['type'] == 'FeatureCollection':
             self.coords = list(self._flatten([f['geometry']['coordinates']
-                           for f in geojson['features']]))
+                                              for f in geojson['features']]))
             self.features_count = len(geojson['features'])
         elif geojson['type'] == 'Feature':
             self.coords = list(self._flatten([
-                        geojson['geometry']['coordinates']]))
+                geojson['geometry']['coordinates']]))
             self.features_count = 1
         else:
             self.coords = list(self._flatten([geojson['coordinates']]))
@@ -56,18 +57,44 @@ def parse_config(auth_file_path):
         return config
 
 
-def check_rename(tmpfile, options, prod):
-    with open(tmpfile) as f_tmp:
-        try:
-            tmp_data = json.load(f_tmp)
-            print("Result is a text file (might come from a wrong password file)")
-            print(tmp_data)
-            sys.exit(-1)
-        except ValueError:
-            pass
+def check_rename(tmpfile, options, prod, prodsize):
+    print(os.path.getsize(tmpfile), prodsize)
+    if os.path.getsize(tmpfile) != prodsize:
+        with open(tmpfile) as f_tmp:
+            try:
+                tmp_data = json.load(f_tmp)
+                print("Result is a text file (might come from a wrong password file)")
+                print(tmp_data)
+                sys.exit(-1)
+            except ValueError:
+                print("\nDownload was not complete, tmp file removed")
+                os.remove(tmpfile)
+                return
 
-    os.rename("{}".format(tmpfile), "{}/{}.zip".format(options.write_dir, prod))
-    print("product saved as : {}/{}.zip".format(options.write_dir, prod))
+    zfile = "{}/{}.zip".format(options.write_dir, prod)
+    os.rename(tmpfile, zfile)
+
+    # Unzip file
+    if options.extract and os.path.exists(zfile):
+        try:
+            with zipfile.ZipFile(zfile, 'r') as zf:
+                safename = zf.namelist()[0].replace('/', '')
+                zf.extractall(options.write_dir)
+            safedir = os.path.join(options.write_dir, safename)
+            if not os.path.isdir(safedir):
+                raise Exception('Unzipped directory not found: ', zfile)
+
+        except Exception as e:
+            print(e)
+            print('Could not unzip file: ' + zfile)
+            os.remove(zfile)
+            print('Zip file removed.')
+            return
+        else:
+            print('Product saved as : ' + safedir)
+            os.remove(zfile)
+            return
+    print("Product saved as : " + zfile)
 
 
 def parse_catalog(options):
@@ -82,37 +109,71 @@ def parse_catalog(options):
     # Sort data
     download_dict = {}
     storage_dict = {}
-    for i in range(len(data["features"])):
-        prod = data["features"][i]["properties"]["productIdentifier"]
-        print(prod, data["features"][i]["properties"]["storage"]["mode"])
-        feature_id = data["features"][i]["id"]
-        try:
-            storage = data["features"][i]["properties"]["storage"]["mode"]
-            platform = data["features"][i]["properties"]["platform"]
-            # parse the orbit number
-            orbitN = data["features"][i]["properties"]["orbitNumber"]
-            if platform == 'S1A':
-                # calculate relative orbit for Sentinel 1A
-                relativeOrbit = ((orbitN - 73) % 175) + 1
-            elif platform == 'S1B':
-                # calculate relative orbit for Sentinel 1B
-                relativeOrbit = ((orbitN - 27) % 175) + 1
+    size_dict = {}
+    if len(data["features"]) > 0:
+        for i in range(len(data["features"])):
+            prod = data["features"][i]["properties"]["productIdentifier"]
+            feature_id = data["features"][i]["id"]
+            try:
+                storage = data["features"][i]["properties"]["storage"]["mode"]
+                platform = data["features"][i]["properties"]["platform"]
+                resourceSize = int(data["features"][i]["properties"]["resourceSize"])
+                if storage == "unknown":
+                    print('Found a product with "unknown" status : %s' % prod)
+                    print("Product %s cannot be downloaded" % prod)
+                    print('Please send and email with product name to peps admin team : exppeps@cnes.fr')
+                else:
+                    # parse the orbit number
+                    orbitN = data["features"][i]["properties"]["orbitNumber"]
+                    if platform == 'S1A':
+                        # calculate relative orbit for Sentinel 1A
+                        relativeOrbit = ((orbitN - 73) % 175) + 1
+                    elif platform == 'S1B':
+                        # calculate relative orbit for Sentinel 1B
+                        relativeOrbit = ((orbitN - 27) % 175) + 1
 
-            if options.orbit is not None:
-                if platform.startswith('S2'):
-                    if prod.find("_R%03d" % options.orbit) > 0:
+                    if options.orbit is not None:
+                        if platform.startswith('S2'):
+                            if prod.find("_R%03d" % options.orbit) > 0:
+                                download_dict[prod] = feature_id
+                                storage_dict[prod] = storage
+                                size_dict[prod] = resourceSize
+                        elif platform.startswith('S1'):
+                            if relativeOrbit == options.orbit:
+                                download_dict[prod] = feature_id
+                                storage_dict[prod] = storage
+                                size_dict[prod] = resourceSize
+                    else:
                         download_dict[prod] = feature_id
                         storage_dict[prod] = storage
-                elif platform.startswith('S1'):
-                    if relativeOrbit == options.orbit:
-                        download_dict[prod] = feature_id
-                        storage_dict[prod] = storage
-            else:
-                download_dict[prod] = feature_id
-                storage_dict[prod] = storage
-        except:
-            pass
-    return prod, download_dict, storage_dict
+                        size_dict[prod] = resourceSize
+            except:
+                pass
+
+        # cloud cover criteria:
+        if options.collection[0:2] == 'S2':
+            for i in range(len(data["features"])):
+                prod = data["features"][i]["properties"]["productIdentifier"]
+                if data["features"][i]["properties"]["cloudCover"] > options.clouds:
+                    del download_dict[prod], storage_dict[prod], size_dict[prod]
+
+        # Selection of specific satellite
+        if options.sat is not None:
+            for i in range(len(data["features"])):
+                prod = data["features"][i]["properties"]["productIdentifier"]
+                if data["features"][i]["properties"]["platform"] != options.sat:
+                    try:
+                        del download_dict[prod], storage_dict[prod], size_dict[prod]
+                    except KeyError:
+                        pass
+
+        for prod in download_dict.keys():
+            print(prod, storage_dict[prod])
+    else:
+        print("No product corresponds to selection criteria")
+        sys.exit(-1)
+
+    return prod, download_dict, storage_dict, size_dict
 
 
 def peps_downloader(options):
@@ -120,34 +181,49 @@ def peps_downloader(options):
     if options.search_json_file is None or options.search_json_file == "":
         options.search_json_file = 'search.json'
 
-    # Define location for searching: location, point or rectangle
-    if options.location is None:
-        if options.lat is None or options.lon is None:
-            if options.latmin is None or options.lonmin is None or \
-                    options.latmax is None or options.lonmax is None:
-                print("Provide at least a point or rectangle")
-                sys.exit(-1)
-            else:
-                geom = 'rectangle'
-        else:
-            if options.latmin is None and options.lonmin is None and \
-                    options.latmax is None and options.lonmax is None:
-                geom = 'point'
-            else:
-                print("Please choose between point and rectangle, but not both")
-                sys.exit(-1)
-
-    else:
-        if options.latmin is None and options.lonmin is None and \
-                options.latmax is None and options.lonmax is None and \
-                options.lat is None or options.lon is None:
-            geom = 'location'
-        else:
-            print("Please choose location and coordinates, but not both")
+    if options.sat is not None:
+        print(options.sat, options.collection[0:2])
+        if not options.sat.startswith(options.collection[0:2]):
+            print("Input parameters collection and satellite are incompatible")
             sys.exit(-1)
 
+    # Define location for searching: location, point or rectangle
+    if options.tile is None:
+        if options.location is None:
+            if options.lat is None or options.lon is None:
+                if options.latmin is None or options.lonmin is None or \
+                        options.latmax is None or options.lonmax is None:
+                    print("Provide at least a point or rectangle")
+                    sys.exit(-1)
+                else:
+                    geom = 'rectangle'
+            else:
+                if options.latmin is None and options.lonmin is None and \
+                        options.latmax is None and options.lonmax is None:
+                    geom = 'point'
+                else:
+                    print("Please choose between point and rectangle, but not both")
+                    sys.exit(-1)
+        else:
+            if options.latmin is None and options.lonmin is None and \
+                    options.latmax is None and options.lonmax is None and \
+                    options.lat is None or options.lon is None:
+                geom = 'location'
+            else:
+                print("Please choose location and coordinates, but not both")
+                sys.exit(-1)
+
     # Generate query based on geometric parameters of catalog request
-    if geom == 'point':
+    if options.tile is not None:
+        if options.tile.startswith('T') and len(options.tile) == 6:
+            tileid = options.tile[1:6]
+        elif len(options.tile) == 5:
+            tileid = options.tile[0:5]
+        else:
+            print("Tile name is ill-formatted : 31TCJ or T31TCJ are allowed")
+            sys.exit(-4)
+        query_geom = "tileid={}".format(tileid)
+    elif geom == 'point':
         query_geom = 'lat={}\&lon={}'.format(options.lat, options.lon)
     elif geom == 'rectangle':
         query_geom = 'box={lonmin},{latmin},{lonmax},{latmax}'.format(
@@ -205,7 +281,7 @@ def peps_downloader(options):
     if (options.product_type == "") and (options.sensor_mode == ""):
         search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
                          "collections/{}/search.json?{}\&startDate={}" \
-                         "\&completionDate={}\&maxRecords=500"\
+                         "\&completionDate={}\&maxRecords=500" \
             .format(options.search_json_file, options.collection,
                     query_geom, start_date, end_date)
     else:
@@ -217,12 +293,15 @@ def peps_downloader(options):
                     query_geom, start_date, end_date,
                     options.product_type, options.sensor_mode)
 
+    if options.windows:
+        search_catalog = search_catalog.replace('\&', '^&')
+
     print(search_catalog)
     os.system(search_catalog)
     time.sleep(5)
 
     # Read catalog
-    prod, download_dict, storage_dict = parse_catalog(options)
+    prod, download_dict, storage_dict, size_dict = parse_catalog(options)
 
     # ====================
     # Download
@@ -249,6 +328,8 @@ def peps_downloader(options):
                         .format(tmpfile, email, passwd,
                                 options.collection, download_dict[prod])
                     os.system(get_product)
+                    if os.path.exists(tmpfile):
+                        os.remove(tmpfile)
 
         NbProdsToDownload = len(list(download_dict.keys()))
         print("##########################")
@@ -271,10 +352,13 @@ def peps_downloader(options):
                             query_geom, start_date, end_date,
                             options.product_type, options.sensor_mode)
 
+            if options.windows:
+                search_catalog = search_catalog.replace('\&', '^&')
+
             os.system(search_catalog)
             time.sleep(2)
 
-            prod, download_dict, storage_dict = parse_catalog(options)
+            prod, download_dict, storage_dict, size_dict = parse_catalog(options)
 
             NbProdsToDownload = 0
             # download all products on disk
@@ -297,38 +381,25 @@ def peps_downloader(options):
                         if not os.path.exists("{}/tmp_{}.tmp".format(options.write_dir, tmticks)):
                             NbProdsToDownload += 1
                         else:
-                            check_rename(tmpfile, options, prod)
+                            check_rename(tmpfile, options, prod, size_dict[prod])
 
                 elif file_exists:
-                    print("{} already exists" % prod)
+                    print("{} already exists".format(prod))
 
             # download all products on tape
             for prod in list(download_dict.keys()):
                 file_exists = os.path.exists("{}/{}.SAFE".format(options.write_dir, prod)) or \
                               os.path.exists("{}/{}.zip".format(options.write_dir, prod))
                 if not options.no_download and not file_exists:
-                    if storage_dict[prod] == "tape":
-                        tmticks = time.time()
-                        tmpfile = "{}/tmp_{}.tmp".format(options.write_dir, tmticks)
-                        print("\nDownload of product : {}" % prod)
-                        get_product = "curl -o {} -k -u {}:{} https://peps.cnes.fr/" \
-                                      "resto/collections/{}/{}/download" \
-                                      "/?issuerId=peps" \
-                            .format(tmpfile, email, passwd,
-                                    options.collection, download_dict[prod])
-                        print(get_product)
-                        os.system(get_product)
-                        if not os.path.exists("{}/tmp_{}.tmp".format(options.write_dir, tmticks)):
-                            NbProdsToDownload += 1
-                        else:
-                            check_rename(tmpfile, options, prod)
+                    if storage_dict[prod] == "tape" or storage_dict[prod] == "staging":
+                        NbProdsToDownload += 1
 
             if NbProdsToDownload > 0:
                 print("##############################################################################")
                 print("{} remaining products are on tape, let's wait 2 minutes before trying again"
                       .format(NbProdsToDownload))
                 print("##############################################################################")
-                time.sleep(120)
+                time.sleep(60)
 
 
 class ParserConfig:
@@ -380,6 +451,12 @@ class ParserConfig:
         self.start_date = config['date_start']
         self.end_date = config['date_end']
         self.json = config['catalog_json']
+        self.clouds = config['clouds']
+        self.tile = config['tile']
+        self.satellite = config['satellite']
+        self.windows = config['windows']
+        self.extract = config['extract']
+
 
 # The function also could be called like this:
 # options = ParserConfig('peps_config.yaml')
@@ -427,6 +504,8 @@ def main(args):
                           help="Do not download products, just print curl command", default=False)
         parser.add_option("-d", "--start_date", dest="start_date", action="store", type="string",
                           help="start date, fmt('2015-12-22')", default=None)
+        parser.add_option("-t", "--tile", dest="tile", action="store", type="string",
+                          help="Sentinel-2 tile number", default=None)
         parser.add_option("--lat", dest="lat", action="store", type="float",
                           help="latitude in decimal degrees", default=None)
         parser.add_option("--lon", dest="lon", action="store", type="float",
@@ -445,6 +524,14 @@ def main(args):
                           help="end date, fmt('2015-12-23')", default='9999-01-01')
         parser.add_option("--json", dest="search_json_file", action="store", type="string",
                           help="Output search JSON filename", default=None)
+        parser.add_option("--windows", dest="windows", action="store_true",
+                          help="For windows usage", default=False)
+        parser.add_option("--cc", "--clouds", dest="clouds", action="store", type="int",
+                          help="Maximum cloud coverage", default=100)
+        parser.add_option("--sat", "--satellite", dest="sat", action="store", type="string",
+                          help="S1A,S1B,S2A,S2B,S3A,S3B", default=None)
+        parser.add_option("-x", "--extract", dest="extract", action="store_true",
+                          help="Extract and remove zip file after download")
         (options, _) = parser.parse_args(args)
         peps_downloader(options)
 
