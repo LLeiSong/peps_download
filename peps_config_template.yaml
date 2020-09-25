@@ -1,0 +1,43 @@
+peps:
+  user:
+  password:
+sentinel:
+  ## Choose one from geojson, location, point, or bbox.
+  ## If multiple ones are given, only geojson will be taken,
+  ## then bbox, then point, then location.
+  # The path of geojson of tiles
+  geojson:
+  # town name (pick one which is not too frequent to avoid confusions)
+  location:
+  # [lat, lon]
+  point:
+  # [latmin, latmax, lonmin, lonmax]
+  bbox:
+  # Sentinel-2 tile number
+  tile:
+  # the date interval for downloading, fmt('2017-10-01')
+  date_start: 2017-10-01
+  date_end: 2018-10-01
+  # 'S1', 'S2', 'S2ST', 'S3'
+  platformname: S1
+  # GRD, SLC, OCN (for S1) | S2MSI1C S2MSI2Ap (for S2)
+  producttype: GRD
+  # EW, IW , SM, WV (for S1) | INS-NOBS, INS-RAW (for S2)
+  sensoroperationalmode: IW
+  orbit:
+  # S1A,S1B,S2A,S2B,S3A,S3B
+  satellite:
+  # Maximum cloud coverage for sentinel-2
+  clouds:
+  # If download the imagery and download path
+  download: True
+  download_path:
+  # Path for search catalog json
+  catalog_json:
+  # Extract zipfile or not
+  extract: False
+  # Work on windows machine or not
+  windows: False
+  # If None, it will be in the same folder as script
+  log_dir:
+
