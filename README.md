@@ -37,6 +37,9 @@ This software is still quite basic, but if you have an account at PEPS, you may 
 - `python ./peps_download.py -c S1 -p GRD -l 'Toulouse' -a peps.txt -d 2015-11-01 -f 2015-12-01`
 which downloads S1 GRD products above Toulouse
 
+- `python {} -c S1 -p GRD -g 'study_area.geojson' -a peps.txt -d 2015-11-01 -f 2015-12-01`
+which downloads S1 GRD products across the whole region covered by study_area.geojson. If study_area.geojson only contains one feature, it will use the bbox of the feature. If it has more than one feature, it will query feature by feature.
+
 ## Authentification 
 
 The file peps.txt must contain your email address and your password on the same line, such as:

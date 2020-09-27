@@ -293,7 +293,7 @@ def peps_downloader(options):
             time.sleep(5)
 
     # ====================
-    # read authentication file
+    # read authentification file
     # ====================
     config = parse_config(options.auth)
     email = config['peps']['user']
@@ -554,6 +554,8 @@ def main(args):
         print("example 4 : python {} -l 'Toulouse' -a peps.txt -c SpotWorldHeritage -p SPOT4 -d 2005-11-01 -f "
               "2006-12-01".format(prog))
         print("example 5 : python {} -c S1 -p GRD -l 'Toulouse' -a peps.txt -d 2015-11-01 -f 2015-12-01"
+              .format(prog))
+        print("example 6 : python {} -c S1 -p GRD -g 'study_area.geojson' -a peps.txt -d 2015-11-01 -f 2015-12-01"
               .format(prog))
         sys.exit(-1)
     else:
