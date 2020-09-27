@@ -28,10 +28,13 @@ sentinel:
   # S1A,S1B,S2A,S2B,S3A,S3B
   satellite:
   # Maximum cloud coverage for sentinel-2
-  cloud:
+  cloud: 100
+  # If download the imagery and download path
   download: True
   download_path: data/sentinel1_raw
+  # Path for search catalog json
   catalog_json:
   # Extract zipfile or not
   extract: False
+  # Work on windows machine or not
   windows: False

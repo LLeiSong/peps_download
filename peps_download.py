@@ -150,6 +150,11 @@ def parse_catalog(options):
             except:
                 pass
 
+        # Remove duplicates
+        download_dict = list(set(download_dict))
+        storage_dict = list(set(storage_dict))
+        size_dict = list(set(size_dict))
+
         # cloud cover criteria:
         if options.collection[0:2] == 'S2':
             for i in range(len(data["features"])):
@@ -189,28 +194,38 @@ def peps_downloader(options):
 
     # Define location for searching: location, point or rectangle
     if options.tile is None:
-        if options.location is None:
-            if options.lat is None or options.lon is None:
-                if options.latmin is None or options.lonmin is None or \
-                        options.latmax is None or options.lonmax is None:
-                    print("Provide at least a point or rectangle")
-                    sys.exit(-1)
+        if options.geojson is None:
+            if options.location is None:
+                if options.lat is None or options.lon is None:
+                    if options.latmin is None or options.lonmin is None or \
+                            options.latmax is None or options.lonmax is None:
+                        print("Provide at least tile, location, coordinates, rectangle, or geojson")
+                        sys.exit(-1)
+                    else:
+                        geom = 'rectangle'
                 else:
-                    geom = 'rectangle'
+                    if options.latmin is None and options.lonmin is None and \
+                            options.latmax is None and options.lonmax is None:
+                        geom = 'point'
+                    else:
+                        print("Please choose between coordinates and rectangle, but not both")
+                        sys.exit(-1)
             else:
                 if options.latmin is None and options.lonmin is None and \
-                        options.latmax is None and options.lonmax is None:
-                    geom = 'point'
+                        options.latmax is None and options.lonmax is None and \
+                        options.lat is None or options.lon is None:
+                    geom = 'location'
                 else:
-                    print("Please choose between point and rectangle, but not both")
+                    print("Please choose location and coordinates, but not both")
                     sys.exit(-1)
         else:
             if options.latmin is None and options.lonmin is None and \
                     options.latmax is None and options.lonmax is None and \
-                    options.lat is None or options.lon is None:
-                geom = 'location'
+                    options.lat is None or options.lon is None and \
+                    options.location is None:
+                geom = 'geojson'
             else:
-                print("Please choose location and coordinates, but not both")
+                print("Please choose location, coordinates, rectangle, or geojson, but not all")
                 sys.exit(-1)
 
     # Generate query based on geometric parameters of catalog request
@@ -223,6 +238,20 @@ def peps_downloader(options):
             print("Tile name is ill-formatted : 31TCJ or T31TCJ are allowed")
             sys.exit(-4)
         query_geom = "tileid={}".format(tileid)
+    elif geom == 'geojson':
+        with open(options.geojson) as f:
+            gj = geojson.load(f)
+        if len(gj['features']) > 1:
+            query_geom = list(map(lambda each: GeoJSON(each).bbox(), gj['features']))
+        else:
+            bbox_gj = GeoJSON(gj).bbox()
+            latmin = bbox_gj[1]
+            latmax = bbox_gj[3]
+            lonmin = bbox_gj[0]
+            lonmax = bbox_gj[2]
+            query_geom = 'box={lonmin},{latmin},{lonmax},{latmax}'.format(
+                latmin=latmin, latmax=latmax,
+                lonmin=lonmin, lonmax=lonmax)
     elif geom == 'point':
         query_geom = 'lat={}\&lon={}'.format(options.lat, options.lon)
     elif geom == 'rectangle':
@@ -278,27 +307,74 @@ def peps_downloader(options):
         os.remove(options.search_json_file)
 
     # Parse catalog
-    if (options.product_type == "") and (options.sensor_mode == ""):
-        search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
-                         "collections/{}/search.json?{}\&startDate={}" \
-                         "\&completionDate={}\&maxRecords=500" \
-            .format(options.search_json_file, options.collection,
-                    query_geom, start_date, end_date)
+    # If the query geom is a geojson with more than 1 feature
+    if isinstance(query_geom, list):
+        json_file_tmp = 'tmp.json'
+        json_all = {"type": "FeatureCollection",
+                    "properties": {},
+                    "features": []}
+        for i in range(0, len(query_geom)):
+            each = query_geom[i]
+            latmin = each[1]
+            latmax = each[3]
+            lonmin = each[0]
+            lonmax = each[2]
+            query_geom_each = 'box={lonmin},{latmin},{lonmax},{latmax}'\
+                .format(latmin=latmin, latmax=latmax,
+                        lonmin=lonmin, lonmax=lonmax)
+            if (options.product_type == "") and (options.sensor_mode == ""):
+                search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
+                                 "collections/{}/search.json?{}\&startDate={}" \
+                                 "\&completionDate={}\&maxRecords=500" \
+                    .format(json_file_tmp, options.collection,
+                            query_geom_each, start_date, end_date)
+            else:
+                search_catalog = 'curl -k -o {} https://peps.cnes.fr/resto/api/' \
+                                 'collections/{}/search.json?{}\&startDate={}' \
+                                 '\&completionDate={}\&maxRecords=500' \
+                                 '\&productType={}\&sensorMode={}' \
+                    .format(json_file_tmp, options.collection,
+                            query_geom_each, start_date, end_date,
+                            options.product_type, options.sensor_mode)
+            if options.windows:
+                search_catalog = search_catalog.replace('\&', '^&')
+            os.system(search_catalog)
+            time.sleep(5)
+
+            with open(json_file_tmp) as data_file:
+                json_each = json.load(data_file)
+                for n in range(0, len(json_each['features'])):
+                    json_each['features'][n]['properties']['no_geom'] = i
+                json_all['features'].extend(json_each['features'])
+            os.remove(json_file_tmp)
+
+        # Write json_all as search_json_file
+        with open(options.search_json_file, 'w') as f:
+            json.dump(json_all, f)
+
+    # Regular condition
     else:
-        search_catalog = 'curl -k -o {} https://peps.cnes.fr/resto/api/' \
-                         'collections/{}/search.json?{}\&startDate={}' \
-                         '\&completionDate={}\&maxRecords=500' \
-                         '\&productType={}\&sensorMode={}' \
-            .format(options.search_json_file, options.collection,
-                    query_geom, start_date, end_date,
-                    options.product_type, options.sensor_mode)
+        if (options.product_type == "") and (options.sensor_mode == ""):
+            search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
+                             "collections/{}/search.json?{}\&startDate={}" \
+                             "\&completionDate={}\&maxRecords=500" \
+                .format(options.search_json_file, options.collection,
+                        query_geom, start_date, end_date)
+        else:
+            search_catalog = 'curl -k -o {} https://peps.cnes.fr/resto/api/' \
+                             'collections/{}/search.json?{}\&startDate={}' \
+                             '\&completionDate={}\&maxRecords=500' \
+                             '\&productType={}\&sensorMode={}' \
+                .format(options.search_json_file, options.collection,
+                        query_geom, start_date, end_date,
+                        options.product_type, options.sensor_mode)
 
-    if options.windows:
-        search_catalog = search_catalog.replace('\&', '^&')
+        if options.windows:
+            search_catalog = search_catalog.replace('\&', '^&')
 
-    print(search_catalog)
-    os.system(search_catalog)
-    time.sleep(5)
+        print(search_catalog)
+        os.system(search_catalog)
+        time.sleep(5)
 
     # Read catalog
     prod, download_dict, storage_dict, size_dict = parse_catalog(options)
@@ -408,7 +484,8 @@ class ParserConfig:
         self.auth = config_path
         config = config['sentinel']
 
-        # Set geometry
+        # Set geometry with the order geojson,
+        self.geojson = None
         self.location = None
         self.lat = None
         self.lon = None
@@ -416,18 +493,14 @@ class ParserConfig:
         self.latmax = None
         self.lonmin = None
         self.lonmax = None
-        if config['geojson'] is not None:
-            print("Geojson is set, so just use it for query.")
-            print("Warning: if the geojson is too big, only 500 imagery will be back.")
+        if config['tile'] is not None:
+            print("Use tile for query.")
+            self.tile = config['tile']
+        elif config['geojson'] is not None:
+            print("Use geojson for query.")
+            print("Warning: if the single feature is too big, only 500 imagery will be back.")
             print("Suggestion: use a small geojson each time.")
-            with open(config['geojson']) as f:
-                gj = geojson.load(f)
-            bbox_gj = GeoJSON(gj).bbox()
-            self.latmin = bbox_gj[1]
-            self.latmax = bbox_gj[3]
-            self.lonmin = bbox_gj[0]
-            self.lonmax = bbox_gj[2]
-
+            self.geojson = config['geojson']
         elif config['bbox'] is not None:
             print("Use bbox to query.")
             self.latmin = config['bbox'][0]
@@ -452,7 +525,6 @@ class ParserConfig:
         self.end_date = config['date_end']
         self.json = config['catalog_json']
         self.clouds = config['clouds']
-        self.tile = config['tile']
         self.satellite = config['satellite']
         self.windows = config['windows']
         self.extract = config['extract']
@@ -463,6 +535,7 @@ class ParserConfig:
 # peps_downloader(options)
 
 
+# Main function for directly run the script
 def main(args):
     # ====================
     # Parse command line
@@ -490,6 +563,8 @@ def main(args):
 
         parser.add_option("-l", "--location", dest="location", action="store", type="string",
                           help="town name (pick one which is not too frequent to avoid confusions)", default=None)
+        parser.add_option("-g", "--geojson", dest="geojson", action="store", type="string",
+                          help="the path of geojson file to query", default=None)
         parser.add_option("-a", "--auth", dest="auth", action="store", type="string",
                           help="Peps account and password yaml file")
         parser.add_option("-w", "--write_dir", dest="write_dir", action="store", type="string",
@@ -529,7 +604,7 @@ def main(args):
         parser.add_option("--cc", "--clouds", dest="clouds", action="store", type="int",
                           help="Maximum cloud coverage", default=100)
         parser.add_option("--sat", "--satellite", dest="sat", action="store", type="string",
-                          help="S1A,S1B,S2A,S2B,S3A,S3B", default=None)
+                          help="S1A, S1B, S2A, S2B, S3A, S3B", default=None)
         parser.add_option("-x", "--extract", dest="extract", action="store_true",
                           help="Extract and remove zip file after download")
         (options, _) = parser.parse_args(args)
