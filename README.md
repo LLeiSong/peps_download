@@ -48,11 +48,26 @@ This software is still quite basic, but if you have an account at PEPS, you may 
     
     which downloads S1 GRD products across the whole region covered by study_area.geojson. If study_area.geojson only contains one feature, it will use the bbox of the feature. If it has more than one feature, it will query feature by feature.
 
-## Authentification 
+### Use it as API
+If you set `peps_config.yaml` based on the template `peps_config_template.yaml`. Then you could call functions as API within your own script like this:
 
-The file peps.txt must contain your email address and your password on the same line, such as:
+```
+from peps_download import *
+options = ParserConfig('peps_config.yaml')
+peps_downloader(options)
+``` 
 
-`your.email@address.fr top_secret`
+`downloader.py` is an example.
+
+## Authentication 
+
+The file peps-config.yaml must contain your email address and your password in the right place, such as:
+
+```
+peps:
+  user: your.email@address.fr
+  password: top_secret
+```
 
 To get an account : https://peps.cnes.fr/rocket/#/register
 

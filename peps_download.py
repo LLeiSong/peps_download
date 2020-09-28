@@ -25,17 +25,17 @@ class OptionParser(optparse.OptionParser):
 class GeoJSON:
     """GeoJSON class which allows to calculate bbox"""
 
-    def __init__(self, geojson):
-        if geojson['type'] == 'FeatureCollection':
+    def __init__(self, gj_object):
+        if gj_object['type'] == 'FeatureCollection':
             self.coords = list(self._flatten([f['geometry']['coordinates']
-                                              for f in geojson['features']]))
-            self.features_count = len(geojson['features'])
-        elif geojson['type'] == 'Feature':
+                                              for f in gj_object['features']]))
+            self.features_count = len(gj_object['features'])
+        elif gj_object['type'] == 'Feature':
             self.coords = list(self._flatten([
-                geojson['geometry']['coordinates']]))
+                gj_object['geometry']['coordinates']]))
             self.features_count = 1
         else:
-            self.coords = list(self._flatten([geojson['coordinates']]))
+            self.coords = list(self._flatten([gj_object['coordinates']]))
             self.features_count = 1
 
     def _flatten(self, l):
@@ -106,6 +106,18 @@ def parse_catalog(options):
         print(data['ErrorMessage'])
         sys.exit(-2)
 
+    # Get unique features
+    # Remove no_geom item
+    for i in range(0, len(data["features"])):
+        del data['features'][i]['properties']['no_geom']
+    # Remove duplicates
+    result = []
+    for i in range(0, len(data['features'])):
+        each = data['features'][i]
+        if each not in result:
+            result.append(each)
+    data['features'] = result
+
     # Sort data
     download_dict = {}
     storage_dict = {}
@@ -149,11 +161,6 @@ def parse_catalog(options):
                         size_dict[prod] = resourceSize
             except:
                 pass
-
-        # Remove duplicates
-        download_dict = list(set(download_dict))
-        storage_dict = list(set(storage_dict))
-        size_dict = list(set(size_dict))
 
         # cloud cover criteria:
         if options.collection[0:2] == 'S2':
@@ -293,7 +300,7 @@ def peps_downloader(options):
             time.sleep(5)
 
     # ====================
-    # read authentification file
+    # read authentication file
     # ====================
     config = parse_config(options.auth)
     email = config['peps']['user']
@@ -319,7 +326,7 @@ def peps_downloader(options):
             latmax = each[3]
             lonmin = each[0]
             lonmax = each[2]
-            query_geom_each = 'box={lonmin},{latmin},{lonmax},{latmax}'\
+            query_geom_each = 'box={lonmin},{latmin},{lonmax},{latmax}' \
                 .format(latmin=latmin, latmax=latmax,
                         lonmin=lonmin, lonmax=lonmax)
             if (options.product_type == "") and (options.sensor_mode == ""):
@@ -413,20 +420,66 @@ def peps_downloader(options):
         print("##########################")
         while NbProdsToDownload > 0:
             # redo catalog search to update disk/tape status
-            if (options.product_type == "") and (options.sensor_mode == ""):
-                search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api" \
-                                 "/collections/{}/search.json?{}" \
-                                 "\&startDate={}\&completionDate={}\&maxRecords=500" \
-                    .format(options.search_json_file, options.collection,
-                            query_geom, start_date, end_date)
+            if isinstance(query_geom, list):
+                json_file_tmp = 'tmp.json'
+                json_all = {"type": "FeatureCollection",
+                            "properties": {},
+                            "features": []}
+                for i in range(0, len(query_geom)):
+                    each = query_geom[i]
+                    latmin = each[1]
+                    latmax = each[3]
+                    lonmin = each[0]
+                    lonmax = each[2]
+                    query_geom_each = 'box={lonmin},{latmin},{lonmax},{latmax}' \
+                        .format(latmin=latmin, latmax=latmax,
+                                lonmin=lonmin, lonmax=lonmax)
+                    if (options.product_type == "") and (options.sensor_mode == ""):
+                        search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
+                                         "collections/{}/search.json?{}\&startDate={}" \
+                                         "\&completionDate={}\&maxRecords=500" \
+                            .format(json_file_tmp, options.collection,
+                                    query_geom_each, start_date, end_date)
+                    else:
+                        search_catalog = 'curl -k -o {} https://peps.cnes.fr/resto/api/' \
+                                         'collections/{}/search.json?{}\&startDate={}' \
+                                         '\&completionDate={}\&maxRecords=500' \
+                                         '\&productType={}\&sensorMode={}' \
+                            .format(json_file_tmp, options.collection,
+                                    query_geom_each, start_date, end_date,
+                                    options.product_type, options.sensor_mode)
+                    if options.windows:
+                        search_catalog = search_catalog.replace('\&', '^&')
+                    os.system(search_catalog)
+                    time.sleep(5)
+
+                    with open(json_file_tmp) as data_file:
+                        json_each = json.load(data_file)
+                        for n in range(0, len(json_each['features'])):
+                            json_each['features'][n]['properties']['no_geom'] = i
+                        json_all['features'].extend(json_each['features'])
+                    os.remove(json_file_tmp)
+
+                # Write json_all as search_json_file
+                with open(options.search_json_file, 'w') as f:
+                    json.dump(json_all, f)
+
+            # Regular condition
             else:
-                search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api" \
-                                 "/collections/{}/search.json?{}" \
-                                 "\&startDate={}\&completionDate={}" \
-                                 "\&maxRecords=500\&productType={}\&sensorMode={}" \
-                    .format(options.search_json_file, options.collection,
-                            query_geom, start_date, end_date,
-                            options.product_type, options.sensor_mode)
+                if (options.product_type == "") and (options.sensor_mode == ""):
+                    search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
+                                     "collections/{}/search.json?{}\&startDate={}" \
+                                     "\&completionDate={}\&maxRecords=500" \
+                        .format(options.search_json_file, options.collection,
+                                query_geom, start_date, end_date)
+                else:
+                    search_catalog = 'curl -k -o {} https://peps.cnes.fr/resto/api/' \
+                                     'collections/{}/search.json?{}\&startDate={}' \
+                                     '\&completionDate={}\&maxRecords=500' \
+                                     '\&productType={}\&sensorMode={}' \
+                        .format(options.search_json_file, options.collection,
+                                query_geom, start_date, end_date,
+                                options.product_type, options.sensor_mode)
 
             if options.windows:
                 search_catalog = search_catalog.replace('\&', '^&')
@@ -451,7 +504,7 @@ def peps_downloader(options):
                                       "/?issuerId=peps" \
                             .format(tmpfile, email, passwd,
                                     options.collection, download_dict[prod])
-                        print(get_product)
+                        # print(get_product)
                         os.system(get_product)
                         # check binary product, rename tmp file
                         if not os.path.exists("{}/tmp_{}.tmp".format(options.write_dir, tmticks)):
@@ -484,7 +537,8 @@ class ParserConfig:
         self.auth = config_path
         config = config['sentinel']
 
-        # Set geometry with the order geojson,
+        # Set geometry with the order tile, geojson, bbox, and point
+        self.tile = None
         self.geojson = None
         self.location = None
         self.lat = None
@@ -523,11 +577,12 @@ class ParserConfig:
         self.no_download = not config['download']
         self.start_date = config['date_start']
         self.end_date = config['date_end']
-        self.json = config['catalog_json']
         self.clouds = config['clouds']
-        self.satellite = config['satellite']
         self.windows = config['windows']
         self.extract = config['extract']
+        self.search_json_file = config['catalog_json']
+        self.sat = config['satellite']
+        self.orbit = config['orbit']
 
 
 # The function also could be called like this:
