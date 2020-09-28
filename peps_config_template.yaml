@@ -38,3 +38,6 @@ sentinel:
   extract: False
   # Work on windows machine or not
   windows: False
+  # If None, it will be in the same folder as script
+  log_dir:
+
