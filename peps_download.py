@@ -142,7 +142,7 @@ def _query_catalog(options, query_geom, start_date, end_date, logger):
             query_geom_each = 'box={lonmin},{latmin},{lonmax},{latmax}' \
                 .format(latmin=latmin, latmax=latmax,
                         lonmin=lonmin, lonmax=lonmax)
-            if (options.product_type == "") and (options.sensor_mode == ""):
+            if (options.product_type is None) and (options.sensor_mode is None):
                 search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
                                  "collections/{}/search.json?{}\&startDate={}" \
                                  "\&completionDate={}\&maxRecords=500" \
@@ -180,7 +180,7 @@ def _query_catalog(options, query_geom, start_date, end_date, logger):
     # Regular condition
     else:
         logger.info("Query based on regular conditions.")
-        if (options.product_type == "") and (options.sensor_mode == ""):
+        if (options.product_type is None) and (options.sensor_mode is None):
             search_catalog = "curl -k -o {} https://peps.cnes.fr/resto/api/" \
                              "collections/{}/search.json?{}\&startDate={}" \
                              "\&completionDate={}\&maxRecords=500" \
@@ -254,8 +254,11 @@ def parse_catalog(options, logger):
 
     # Get unique features
     # Remove no_geom item
-    for i in range(0, len(data["features"])):
-        del data['features'][i]['properties']['no_geom']
+    try:
+        for i in range(0, len(data["features"])):
+            del data['features'][i]['properties']['no_geom']
+    except:
+        pass
     # Remove duplicates
     result = []
     for i in range(0, len(data['features'])):
@@ -610,9 +613,9 @@ def main(args):
         parser.add_option("-c", "--collection", dest="collection", action="store", type="choice",
                           help="Collection within theia collections", choices=['S1', 'S2', 'S2ST', 'S3'], default='S2')
         parser.add_option("-p", "--product_type", dest="product_type", action="store", type="string",
-                          help="GRD, SLC, OCN (for S1) | S2MSI1C S2MSI2Ap (for S2)", default="")
+                          help="GRD, SLC, OCN (for S1) | S2MSI1C S2MSI2Ap (for S2)", default=None)
         parser.add_option("-m", "--sensor_mode", dest="sensor_mode", action="store", type="string",
-                          help="EW, IW , SM, WV (for S1) | INS-NOBS, INS-RAW (for S2)", default="")
+                          help="EW, IW , SM, WV (for S1) | INS-NOBS, INS-RAW (for S2)", default=None)
         parser.add_option("-n", "--no_download", dest="no_download", action="store_true",
                           help="Do not download products, just print curl command", default=False)
         parser.add_option("-d", "--start_date", dest="start_date", action="store", type="string",
@@ -645,8 +648,8 @@ def main(args):
                           help="S1A, S1B, S2A, S2B, S3A, S3B", default=None)
         parser.add_option("-x", "--extract", dest="extract", action="store_true",
                           help="Extract and remove zip file after download")
-        parser.add_option("-ld", "--log_dir", dest="log_dir", action="store_true",
-                          help="The path to save log file")
+        parser.add_option("--ld", "--log_dir", dest="log_dir", action="store_true",
+                          help="The path to save log file", default=None)
         (options, _) = parser.parse_args(args)
 
         # Set logging
@@ -657,6 +660,10 @@ def main(args):
         else:
             options.log = "peps_download_{}.log" \
                 .format(datetime.now().strftime("%d%m%Y_%H%M"))
+
+        # Date format
+        options.start_date = datetime.strptime(options.start_date, '%Y-%m-%d').date()
+        options.end_date = datetime.strptime(options.end_date, '%Y-%m-%d').date()
 
         # Run
         peps_downloader(options)
