@@ -439,12 +439,12 @@ def peps_downloader(options):
 
     # special case for Sentinel-2
     if options.collection == 'S2':
-        if options.start_date >= '2016-12-05':
+        if options.start_date >= datetime.strptime('2016-12-05', '%Y-%m-%d').date():
             print("**** Products after '2016-12-05' are stored in Tiled products collection")
             print("**** Please use option -c S2ST")
             logger.warning("Option -c S2ST should be used for sentinel-2 imagery after '2016-12-05'")
             time.sleep(5)
-        elif options.end_date >= '2016-12-05':
+        elif options.end_date >= datetime.strptime('2016-12-05', '%Y-%m-%d').date():
             print("**** Products after '2016-12-05' are stored in Tiled products collection")
             print("**** Please use option -c S2ST to get the products after that date")
             print("**** Products before that date will be downloaded")
@@ -453,12 +453,12 @@ def peps_downloader(options):
             time.sleep(5)
 
     if options.collection == 'S2ST':
-        if options.end_date < '2016-12-05':
+        if options.end_date < datetime.strptime('2016-12-05', '%Y-%m-%d').date():
             print("**** Products before '2016-12-05' are stored in non-tiled products collection")
             print("**** Please use option -c S2")
             logger.warning("Option -c S2 should be used for sentinel-2 imagery before '2016-12-05'")
             time.sleep(5)
-        elif options.start_date < '2016-12-05':
+        elif options.start_date < datetime.strptime('2016-12-05', '%Y-%m-%d').date():
             print("**** Products before '2016-12-05' are stored in non-tiled products collection")
             print("**** Please use option -c S2 to get the products before that date")
             print("**** Products after that date will be downloaded")
