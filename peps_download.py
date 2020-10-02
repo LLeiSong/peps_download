@@ -149,13 +149,15 @@ def _query_catalog(options, query_geom, start_date, end_date, logger):
                     .format(json_file_tmp, options.collection,
                             query_geom_each, start_date, end_date)
             else:
+                product_type = "" if options.product_type is None else options.product_type
+                sensor_mode = "" if options.sensor_mode is None else options.sensor_mode
                 search_catalog = 'curl -k -o {} https://peps.cnes.fr/resto/api/' \
                                  'collections/{}/search.json?{}\&startDate={}' \
                                  '\&completionDate={}\&maxRecords=500' \
                                  '\&productType={}\&sensorMode={}' \
                     .format(json_file_tmp, options.collection,
                             query_geom_each, start_date, end_date,
-                            options.product_type, options.sensor_mode)
+                            product_type, sensor_mode)
             if options.windows:
                 search_catalog = search_catalog.replace('\&', '^&')
             os.system(search_catalog)
@@ -187,13 +189,15 @@ def _query_catalog(options, query_geom, start_date, end_date, logger):
                 .format(options.search_json_file, options.collection,
                         query_geom, start_date, end_date)
         else:
+            product_type = "" if options.product_type is None else options.product_type
+            sensor_mode = "" if options.sensor_mode is None else options.sensor_mode
             search_catalog = 'curl -k -o {} https://peps.cnes.fr/resto/api/' \
                              'collections/{}/search.json?{}\&startDate={}' \
                              '\&completionDate={}\&maxRecords=500' \
                              '\&productType={}\&sensorMode={}' \
                 .format(options.search_json_file, options.collection,
                         query_geom, start_date, end_date,
-                        options.product_type, options.sensor_mode)
+                        product_type, sensor_mode)
 
         if options.windows:
             search_catalog = search_catalog.replace('\&', '^&')
