@@ -10,6 +10,7 @@ import yaml
 import geojson
 import zipfile
 import logging
+from os.path import exists
 from datetime import date, datetime
 
 
@@ -91,7 +92,10 @@ class ParserConfig:
             self.location = config['location']
 
         # Set sentinel parameter
-        self.write_dir = config['download_path']
+        if config['download_path'] is None:
+            self.write_dir = '.'
+        else:
+            self.write_dir = config['download_path']
         self.collection = config['platformname']
         self.product_type = config['producttype']
         self.sensor_mode = config['sensoroperationalmode']
@@ -350,6 +354,10 @@ def peps_downloader(options):
     logging.basicConfig(filename=options.log, filemode='w',
                         level=logging.INFO, format=log_format)
     logger = logging.getLogger(__name__)
+
+    # Check download path
+    if not exists(options.write_dir):
+        os.mkdir(options.write_dir)
 
     # Initialize json file for searching
     if options.search_json_file is None or options.search_json_file == "":
